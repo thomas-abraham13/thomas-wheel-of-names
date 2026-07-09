@@ -1,6 +1,6 @@
 # Thomas Wheel of Names
 
-A shareable wheel where anyone with the same wheel URL can add or remove names.
+A shareable wheel where anyone with the same wheel URL can rename the wheel, add names, remove names, and spin for a winner.
 
 ## Run Locally
 
@@ -26,5 +26,5 @@ The wheel ID in the URL is the access key. Anyone with that URL can edit that wh
 
 - `index.html` contains the app shell.
 - `styles.css` contains the responsive interface.
-- `app.js` contains wheel drawing, spinning, local fallback, and live API sync.
+- `app.js` contains wheel drawing, spinning, the winner popup, local fallback, and live API sync.
 - `server.js` serves the app, stores wheel data, and streams live updates.

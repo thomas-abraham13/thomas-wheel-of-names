@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="fx">
+  <defs>
+    <linearGradient id="fxGradient" x1="45" y1="55" x2="468" y2="477" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8d43ee"/>
+      <stop offset="0.46" stop-color="#7759f0"/>
+      <stop offset="1" stop-color="#72a3f6"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#fxGradient)"/>
+  <g fill="#fff" font-family="Inter, Arial, Helvetica, sans-serif" font-weight="900">
+    <text x="163" y="329" font-size="205">f</text>
+    <text x="239" y="329" font-size="170">x</text>
+  </g>
+</svg>

@@ -90,8 +90,21 @@ async function handleApi(request, response) {
   if (request.method === "PUT" && parts.length === 4 && parts[3] === "last-winner") {
     const body = await readJsonBody(request);
     const text = normalizeName(body.text);
+    const nameId = normalizeId(body.nameId);
     const wheel = getWheel(wheelId);
     wheel.lastWinner = text;
+    wheel.lastWinnerId = wheel.names.some((name) => name.id === nameId) ? nameId : "";
+    wheel.lastWinnerAt = Date.now();
+    saveAndBroadcast(wheelId, wheel);
+    sendJson(response, 200, wheel);
+    return;
+  }
+
+  if (request.method === "PUT" && parts.length === 4 && parts[3] === "title") {
+    const body = await readJsonBody(request);
+    const title = normalizeTitle(body.title);
+    const wheel = getWheel(wheelId);
+    wheel.title = title || "Wheel of Names";
     saveAndBroadcast(wheelId, wheel);
     sendJson(response, 200, wheel);
     return;
@@ -157,18 +170,25 @@ function serveStatic(request, response) {
 function getWheel(wheelId) {
   if (!database.wheels[wheelId]) {
     database.wheels[wheelId] = {
+      title: "Wheel of Names",
       names: [],
       lastWinner: "",
+      lastWinnerId: "",
+      lastWinnerAt: 0,
       createdAt: Date.now()
     };
     persistDatabase();
   }
 
   const wheel = database.wheels[wheelId];
+  wheel.title = normalizeTitle(wheel.title) || "Wheel of Names";
   wheel.names = Array.isArray(wheel.names) ? wheel.names : [];
   wheel.lastWinner = typeof wheel.lastWinner === "string" ? wheel.lastWinner : "";
+  wheel.lastWinnerId = normalizeId(wheel.lastWinnerId);
+  wheel.lastWinnerAt = Number(wheel.lastWinnerAt || 0);
 
   return {
+    title: wheel.title,
     names: wheel.names
       .map((name) => ({
         id: String(name.id),
@@ -177,15 +197,20 @@ function getWheel(wheelId) {
       }))
       .filter((name) => name.id && name.text)
       .sort((a, b) => a.createdAt - b.createdAt),
-    lastWinner: wheel.lastWinner
+    lastWinner: wheel.lastWinner,
+    lastWinnerId: wheel.lastWinnerId,
+    lastWinnerAt: wheel.lastWinnerAt
   };
 }
 
 function saveAndBroadcast(wheelId, wheel) {
   database.wheels[wheelId] = {
     ...database.wheels[wheelId],
+    title: normalizeTitle(wheel.title) || "Wheel of Names",
     names: wheel.names,
     lastWinner: wheel.lastWinner,
+    lastWinnerId: normalizeId(wheel.lastWinnerId),
+    lastWinnerAt: Number(wheel.lastWinnerAt || 0),
     updatedAt: Date.now()
   };
   persistDatabase();
@@ -259,6 +284,15 @@ function createRecordId() {
 
 function normalizeName(value) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+function normalizeTitle(value) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 60);
+}
+
+function normalizeId(value) {
+  const text = String(value || "").trim();
+  return /^[a-zA-Z0-9_-]{1,120}$/.test(text) ? text : "";
 }
 
 function isValidWheelId(value) {
