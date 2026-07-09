@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f6f7ef">
+    <title>Thomas Wheel of Names</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar" aria-label="Wheel controls">
+        <div class="brand-block">
+          <p class="eyebrow">Shared wheel</p>
+          <h1>Wheel of Names</h1>
+        </div>
+        <div class="wheel-actions">
+          <div class="sync-pill" id="syncStatus">Starting</div>
+          <button class="icon-button" id="copyLinkButton" type="button" aria-label="Copy wheel link" title="Copy wheel link">
+            <span aria-hidden="true">⧉</span>
+          </button>
+          <button class="icon-button" id="newWheelButton" type="button" aria-label="Create a new wheel" title="Create a new wheel">
+            <span aria-hidden="true">＋</span>
+          </button>
+        </div>
+      </header>
+
+      <section class="workspace" aria-label="Wheel workspace">
+        <div class="wheel-stage">
+          <div class="wheel-wrap">
+            <canvas id="wheelCanvas" width="900" height="900" aria-label="Wheel of names"></canvas>
+            <div class="pointer" aria-hidden="true"></div>
+          </div>
+          <div class="spin-controls">
+            <button class="spin-button" id="spinButton" type="button">Spin</button>
+            <p class="result" id="resultText" aria-live="polite">Ready</p>
+          </div>
+        </div>
+
+        <aside class="name-panel" aria-label="Names">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Wheel ID</p>
+              <h2 id="wheelIdLabel">Loading</h2>
+            </div>
+            <span class="count-badge" id="nameCount">0</span>
+          </div>
+
+          <form class="name-form" id="nameForm">
+            <label for="nameInput">Name</label>
+            <div class="input-row">
+              <input id="nameInput" name="name" type="text" maxlength="80" autocomplete="off" placeholder="Add a name">
+              <button type="submit">Add</button>
+            </div>
+          </form>
+
+          <div class="name-list" id="nameList" aria-live="polite"></div>
+        </aside>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
