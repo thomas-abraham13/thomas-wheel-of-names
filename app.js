@@ -1,3 +1,7 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+import { doc, getDoc, getFirestore, onSnapshot, runTransaction, setDoc } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
+
 const API_BASE = "/api/wheels";
 const DEFAULT_TITLE = "Wheel of Names";
 const DEFAULT_CENTER_IMAGE = "./assets/fx-logo.svg";
@@ -14,6 +18,14 @@ const WHEEL_COLORS = [
   "#56a4b5"
 ];
 const CONFETTI_COLORS = ["#0f766e", "#f2c94c", "#e05c43", "#4778c7", "#7a4fb3", "#2d9c72"];
+const firebaseConfig = {
+  apiKey: "AIzaSyBzEPp-uoysxrwcrW3lD5CGKqscvD4VqRQ",
+  authDomain: "thomas-wheel-of-names.firebaseapp.com",
+  projectId: "thomas-wheel-of-names",
+  storageBucket: "thomas-wheel-of-names.firebasestorage.app",
+  messagingSenderId: "954697227434",
+  appId: "1:954697227434:web:2661a64ce64bb36e6fc4d3"
+};
 
 const elements = {
   canvas: document.querySelector("#wheelCanvas"),
@@ -242,7 +254,12 @@ function closeImageMenu() {
 
 async function createStore(id) {
   if (window.location.hostname.endsWith("github.io")) {
-    return createLocalStore(id, "Saved locally");
+    try {
+      return await createFirebaseStore(id);
+    } catch (error) {
+      console.error("Firebase unavailable; falling back to local storage.", error);
+      return createLocalStore(id, "Saved locally");
+    }
   }
 
   try {
@@ -252,6 +269,76 @@ async function createStore(id) {
     console.warn("Shared API unavailable; falling back to local mode.", error);
     return createLocalStore(id);
   }
+}
+
+async function createFirebaseStore(id) {
+  const firebaseApp = initializeApp(firebaseConfig);
+  const auth = getAuth(firebaseApp);
+  const database = getFirestore(firebaseApp);
+  const wheelRef = doc(database, "wheels", id);
+
+  if (!auth.currentUser) {
+    await signInAnonymously(auth);
+  }
+
+  const existing = await getDoc(wheelRef);
+  if (!existing.exists()) {
+    await setDoc(wheelRef, emptyWheelState());
+  }
+
+  const transact = (changeState) => runTransaction(database, async (transaction) => {
+    const snapshot = await transaction.get(wheelRef);
+    const state = normalizeServerState(snapshot.exists() ? snapshot.data() : emptyWheelState());
+    changeState(state);
+    transaction.set(wheelRef, { ...state, updatedAt: Date.now() });
+  });
+
+  return {
+    mode: "live",
+    label: "Live sync",
+    subscribe(onChange) {
+      return onSnapshot(wheelRef, (snapshot) => {
+        if (snapshot.exists()) onChange(normalizeServerState(snapshot.data()));
+      }, (error) => {
+        console.error("Wheel sync failed.", error);
+        setSyncStatus("local", "Sync error");
+      });
+    },
+    addName(text) {
+      return transact((state) => state.names.push({ id: createRecordId(), text, createdAt: Date.now() }));
+    },
+    removeName(nameId) {
+      return transact((state) => {
+        state.names = state.names.filter((name) => name.id !== nameId);
+      });
+    },
+    setLastWinner(text, nameId) {
+      return setDoc(wheelRef, {
+        lastWinner: text,
+        lastWinnerId: nameId || "",
+        lastWinnerAt: Date.now(),
+        updatedAt: Date.now()
+      }, { merge: true });
+    },
+    setTitle(title) {
+      return setDoc(wheelRef, { title: normalizeTitle(title) || DEFAULT_TITLE, updatedAt: Date.now() }, { merge: true });
+    },
+    setCenterImage(centerImage) {
+      return setDoc(wheelRef, { centerImage: normalizeCenterImage(centerImage), updatedAt: Date.now() }, { merge: true });
+    }
+  };
+}
+
+function emptyWheelState() {
+  return {
+    title: DEFAULT_TITLE,
+    centerImage: "",
+    names: [],
+    lastWinner: "",
+    lastWinnerAt: 0,
+    lastWinnerId: "",
+    createdAt: Date.now()
+  };
 }
 
 function createServerStore(id, initialState) {

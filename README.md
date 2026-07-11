@@ -12,7 +12,7 @@ Open the printed localhost URL. A new wheel ID is created automatically in the `
 
 ## Host on GitHub Pages
 
-Publish `index.html`, `styles.css`, `app.js`, and `assets/` from the repository root. On GitHub Pages the app automatically uses browser local storage, so names, titles, winners, and uploaded centre images persist on that device. GitHub Pages is static hosting, so wheel changes do not live-sync between different people or browsers.
+Publish `index.html`, `styles.css`, `app.js`, and `assets/` from the repository root. The GitHub Pages deployment uses Firebase anonymous authentication and Firestore to save and live-sync wheels between browsers. If Firebase is unavailable, it falls back to browser local storage.
 
 ## Host with Live Sync
 
