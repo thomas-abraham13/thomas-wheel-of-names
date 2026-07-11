@@ -4,7 +4,6 @@ import { doc, getDoc, getFirestore, onSnapshot, runTransaction, setDoc } from "h
 
 const API_BASE = "/api/wheels";
 const DEFAULT_TITLE = "Wheel of Names";
-const DEFAULT_CENTER_IMAGE = "./assets/fx-logo.svg";
 const CENTER_COLORS = new Set(["#ffffff", "#1d211f", "#0f766e", "#f2c94c", "#7a4fb3"]);
 const TAU = Math.PI * 2;
 const WHEEL_COLORS = [
@@ -74,8 +73,6 @@ let confettiPieces = [];
 
 centerLogo.onload = drawWheel;
 centerLogo.onerror = drawWheel;
-centerLogo.src = DEFAULT_CENTER_IMAGE;
-
 boot();
 
 async function boot() {
@@ -95,7 +92,7 @@ async function boot() {
     currentTitle = nextState.title || DEFAULT_TITLE;
     if (centerImage !== nextState.centerImage) {
       centerImage = nextState.centerImage || "";
-      if (!centerImage.startsWith("color:")) centerLogo.src = centerImage || DEFAULT_CENTER_IMAGE;
+      if (centerImage && !centerImage.startsWith("color:")) centerLogo.src = centerImage;
     }
     names = nextState.names;
     lastWinner = nextState.lastWinner || "";
@@ -627,10 +624,10 @@ function drawWheel() {
     ctx.fillStyle = names.length ? WHEEL_COLORS[index % WHEEL_COLORS.length] : "#dfe4dc";
     ctx.fill();
     ctx.lineWidth = 5;
-    ctx.strokeStyle = "#ffffff";
+    ctx.strokeStyle = names.length ? "#ffffff" : "#1d211f";
     ctx.stroke();
 
-    drawSegmentText(name.text, start + slice / 2, outerRadius);
+    drawSegmentText(name.text, start + slice / 2, outerRadius, !names.length);
   });
 
   drawCenterHub(innerRadius);
@@ -649,20 +646,12 @@ function drawCenterHub(radius) {
   if (centerImage.startsWith("color:")) {
     ctx.fillStyle = centerImage.slice(6);
     ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
-  } else if (centerLogo.complete && centerLogo.naturalWidth > 0) {
+  } else if (centerImage && centerLogo.complete && centerLogo.naturalWidth > 0) {
     const diameter = radius * 2;
     const sourceSize = Math.min(centerLogo.naturalWidth, centerLogo.naturalHeight);
     const sourceX = (centerLogo.naturalWidth - sourceSize) / 2;
     const sourceY = (centerLogo.naturalHeight - sourceSize) / 2;
     ctx.drawImage(centerLogo, sourceX, sourceY, sourceSize, sourceSize, -radius, -radius, diameter, diameter);
-  } else {
-    ctx.fillStyle = "#7a4fb3";
-    ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "900 64px Inter, system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("TA", 0, -3);
   }
   ctx.restore();
 
@@ -672,14 +661,14 @@ function drawCenterHub(radius) {
   ctx.restore();
 }
 
-function drawSegmentText(text, angle, outerRadius) {
+function drawSegmentText(text, angle, outerRadius, isPlaceholder = false) {
   ctx.save();
   ctx.rotate(angle);
   ctx.textAlign = "right";
   ctx.textBaseline = "middle";
-  ctx.fillStyle = "#ffffff";
-  ctx.shadowColor = "rgba(0, 0, 0, 0.28)";
-  ctx.shadowBlur = 2;
+  ctx.fillStyle = isPlaceholder ? "#1d211f" : "#ffffff";
+  ctx.shadowColor = isPlaceholder ? "transparent" : "rgba(0, 0, 0, 0.28)";
+  ctx.shadowBlur = isPlaceholder ? 0 : 2;
   ctx.font = "800 32px Inter, system-ui, sans-serif";
 
   const maxWidth = outerRadius * 0.52;
