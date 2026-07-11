@@ -137,6 +137,119 @@ button {
   box-shadow: 0 8px 20px rgba(29, 33, 31, 0.08);
 }
 
+.top-image-button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 800;
+  box-shadow: 0 8px 20px rgba(29, 33, 31, 0.08);
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.top-image-button:hover,
+.top-image-button:focus-visible {
+  outline: 3px solid rgba(15, 118, 110, 0.18);
+  outline-offset: 2px;
+}
+
+.image-menu-wrap {
+  position: relative;
+}
+
+.image-menu {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 9px);
+  right: 0;
+  width: 220px;
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 48px rgba(29, 33, 31, 0.18);
+  padding: 14px;
+}
+
+.image-menu[hidden] {
+  display: none;
+}
+
+.image-menu p {
+  margin: 0 0 2px;
+  font-weight: 850;
+}
+
+.image-menu small {
+  color: var(--muted);
+}
+
+.image-menu-action {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.image-menu-upload {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.colour-options {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 7px;
+  margin: 3px 0 0;
+  border: 0;
+  padding: 0;
+}
+
+.colour-options legend {
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.colour-options button {
+  width: 32px;
+  height: 32px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.colour-options button:hover,
+.colour-options button:focus-visible {
+  outline: 3px solid rgba(15, 118, 110, 0.22);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
 .icon-button:hover,
 .icon-button:focus-visible,
 .name-form button:hover,
@@ -341,6 +454,14 @@ button {
   padding: 20px;
 }
 
+#centerImageInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
 .panel-heading {
   display: flex;
   align-items: flex-start;
@@ -467,6 +588,11 @@ button {
 
   .topbar {
     align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .wheel-actions {
+    flex-wrap: wrap;
   }
 
   .workspace {

@@ -16,8 +16,29 @@
         </form>
         <div class="wheel-actions">
           <div class="sync-pill" id="syncStatus">Starting</div>
+          <div class="image-menu-wrap">
+            <button class="top-image-button" id="imageMenuButton" type="button" aria-expanded="false" aria-controls="imageMenu">Image</button>
+            <div class="image-menu" id="imageMenu" hidden>
+              <p>Centre image</p>
+              <label class="image-menu-action image-menu-upload" for="centerImageInput">Choose image</label>
+              <input id="centerImageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+              <button class="image-menu-action" id="resetCenterImageButton" type="button">Reset to default</button>
+              <fieldset class="colour-options">
+                <legend>Or use a colour</legend>
+                <button type="button" data-center-color="#ffffff" style="--swatch: #ffffff" aria-label="Use white"></button>
+                <button type="button" data-center-color="#1d211f" style="--swatch: #1d211f" aria-label="Use charcoal"></button>
+                <button type="button" data-center-color="#0f766e" style="--swatch: #0f766e" aria-label="Use teal"></button>
+                <button type="button" data-center-color="#f2c94c" style="--swatch: #f2c94c" aria-label="Use gold"></button>
+                <button type="button" data-center-color="#7a4fb3" style="--swatch: #7a4fb3" aria-label="Use purple"></button>
+              </fieldset>
+              <small>PNG, JPG, WebP or GIF</small>
+            </div>
+          </div>
           <button class="icon-button" id="copyLinkButton" type="button" aria-label="Copy wheel link" title="Copy wheel link">
-            <span aria-hidden="true">[]</span>
+            <svg aria-hidden="true" viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+              <path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"></path>
+            </svg>
           </button>
           <button class="icon-button" id="newWheelButton" type="button" aria-label="Create a new wheel" title="Create a new wheel">
             <span aria-hidden="true">+</span>

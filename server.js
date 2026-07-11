@@ -7,6 +7,7 @@ const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path
 const dataFile = process.env.DATA_FILE ? path.resolve(process.env.DATA_FILE) : path.join(dataDir, "wheels.json");
 const basePort = Number(process.env.PORT || 4173);
 const clients = new Map();
+const centerColors = new Set(["#ffffff", "#1d211f", "#0f766e", "#f2c94c", "#7a4fb3"]);
 
 const types = {
   ".css": "text/css; charset=utf-8",
@@ -110,6 +111,16 @@ async function handleApi(request, response) {
     return;
   }
 
+  if (request.method === "PUT" && parts.length === 4 && parts[3] === "center-image") {
+    const body = await readJsonBody(request);
+    const centerImage = normalizeCenterImage(body.centerImage);
+    const wheel = getWheel(wheelId);
+    wheel.centerImage = centerImage;
+    saveAndBroadcast(wheelId, wheel);
+    sendJson(response, 200, wheel);
+    return;
+  }
+
   sendJson(response, 404, { error: "Not found" });
 }
 
@@ -171,6 +182,7 @@ function getWheel(wheelId) {
   if (!database.wheels[wheelId]) {
     database.wheels[wheelId] = {
       title: "Wheel of Names",
+      centerImage: "",
       names: [],
       lastWinner: "",
       lastWinnerId: "",
@@ -182,6 +194,7 @@ function getWheel(wheelId) {
 
   const wheel = database.wheels[wheelId];
   wheel.title = normalizeTitle(wheel.title) || "Wheel of Names";
+  wheel.centerImage = normalizeCenterImage(wheel.centerImage);
   wheel.names = Array.isArray(wheel.names) ? wheel.names : [];
   wheel.lastWinner = typeof wheel.lastWinner === "string" ? wheel.lastWinner : "";
   wheel.lastWinnerId = normalizeId(wheel.lastWinnerId);
@@ -189,6 +202,7 @@ function getWheel(wheelId) {
 
   return {
     title: wheel.title,
+    centerImage: wheel.centerImage,
     names: wheel.names
       .map((name) => ({
         id: String(name.id),
@@ -207,6 +221,7 @@ function saveAndBroadcast(wheelId, wheel) {
   database.wheels[wheelId] = {
     ...database.wheels[wheelId],
     title: normalizeTitle(wheel.title) || "Wheel of Names",
+    centerImage: normalizeCenterImage(wheel.centerImage),
     names: wheel.names,
     lastWinner: wheel.lastWinner,
     lastWinnerId: normalizeId(wheel.lastWinnerId),
@@ -247,7 +262,7 @@ function readJsonBody(request) {
 
     request.on("data", (chunk) => {
       body += chunk;
-      if (body.length > 4096) {
+      if (body.length > 750000) {
         request.destroy();
         reject(new Error("Request body too large"));
       }
@@ -288,6 +303,13 @@ function normalizeName(value) {
 
 function normalizeTitle(value) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, 60);
+}
+
+function normalizeCenterImage(value) {
+  const image = typeof value === "string" ? value : "";
+  if (!image) return "";
+  if (image.startsWith("color:") && centerColors.has(image.slice(6))) return image;
+  return /^data:image\/(?:png|jpeg|webp|gif);base64,[a-zA-Z0-9+/=]+$/.test(image) && image.length <= 700000 ? image : "";
 }
 
 function normalizeId(value) {

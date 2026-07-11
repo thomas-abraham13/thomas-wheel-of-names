@@ -1,5 +1,7 @@
 const API_BASE = "/api/wheels";
 const DEFAULT_TITLE = "Wheel of Names";
+const DEFAULT_CENTER_IMAGE = "./assets/fx-logo.svg";
+const CENTER_COLORS = new Set(["#ffffff", "#1d211f", "#0f766e", "#f2c94c", "#7a4fb3"]);
 const TAU = Math.PI * 2;
 const WHEEL_COLORS = [
   "#0f766e",
@@ -15,14 +17,18 @@ const CONFETTI_COLORS = ["#0f766e", "#f2c94c", "#e05c43", "#4778c7", "#7a4fb3", 
 
 const elements = {
   canvas: document.querySelector("#wheelCanvas"),
+  centerImageInput: document.querySelector("#centerImageInput"),
   confettiCanvas: document.querySelector("#confettiCanvas"),
   copyLinkButton: document.querySelector("#copyLinkButton"),
   nameCount: document.querySelector("#nameCount"),
   nameForm: document.querySelector("#nameForm"),
   nameInput: document.querySelector("#nameInput"),
   nameList: document.querySelector("#nameList"),
+  imageMenu: document.querySelector("#imageMenu"),
+  imageMenuButton: document.querySelector("#imageMenuButton"),
   newWheelButton: document.querySelector("#newWheelButton"),
   resultText: document.querySelector("#resultText"),
+  resetCenterImageButton: document.querySelector("#resetCenterImageButton"),
   spinButton: document.querySelector("#spinButton"),
   syncStatus: document.querySelector("#syncStatus"),
   wheelIdLabel: document.querySelector("#wheelIdLabel"),
@@ -40,6 +46,7 @@ const wheelId = getOrCreateWheelId();
 const centerLogo = new Image();
 
 let currentTitle = DEFAULT_TITLE;
+let centerImage = "";
 let names = [];
 let rotation = 0;
 let spinning = false;
@@ -55,7 +62,7 @@ let confettiPieces = [];
 
 centerLogo.onload = drawWheel;
 centerLogo.onerror = drawWheel;
-centerLogo.src = "./assets/fx-logo.svg";
+centerLogo.src = DEFAULT_CENTER_IMAGE;
 
 boot();
 
@@ -74,6 +81,10 @@ async function boot() {
     const previousWinnerAt = lastWinnerAt;
 
     currentTitle = nextState.title || DEFAULT_TITLE;
+    if (centerImage !== nextState.centerImage) {
+      centerImage = nextState.centerImage || "";
+      if (!centerImage.startsWith("color:")) centerLogo.src = centerImage || DEFAULT_CENTER_IMAGE;
+    }
     names = nextState.names;
     lastWinner = nextState.lastWinner || "";
     lastWinnerAt = nextState.lastWinnerAt || 0;
@@ -137,6 +148,44 @@ function bindUi() {
     }
   });
 
+  elements.centerImageInput.addEventListener("change", async () => {
+    const file = elements.centerImageInput.files?.[0];
+    if (!file || !store) return;
+
+    try {
+      const imageData = await resizeImage(file, 512);
+      await store.setCenterImage(imageData);
+      flashStatus("Image updated");
+      closeImageMenu();
+    } catch (error) {
+      console.error(error);
+      flashStatus("Image failed");
+    } finally {
+      elements.centerImageInput.value = "";
+    }
+  });
+
+  elements.resetCenterImageButton.addEventListener("click", async () => {
+    if (!store) return;
+    await store.setCenterImage("");
+    flashStatus("Image reset");
+    closeImageMenu();
+  });
+
+  elements.imageMenuButton.addEventListener("click", () => {
+    const willOpen = elements.imageMenu.hidden;
+    elements.imageMenu.hidden = !willOpen;
+    elements.imageMenuButton.setAttribute("aria-expanded", String(willOpen));
+  });
+
+  elements.imageMenu.addEventListener("click", async (event) => {
+    const colourButton = event.target.closest("[data-center-color]");
+    if (!colourButton || !store) return;
+    await store.setCenterImage(`color:${colourButton.dataset.centerColor}`);
+    flashStatus("Colour updated");
+    closeImageMenu();
+  });
+
   elements.spinButton.addEventListener("click", spinWheel);
   elements.canvas.addEventListener("click", spinWheel);
   elements.canvas.addEventListener("keydown", (event) => {
@@ -159,6 +208,11 @@ function bindUi() {
     if (event.key === "Escape" && !elements.winnerOverlay.hidden) {
       closeWinnerPopup();
     }
+    if (event.key === "Escape") closeImageMenu();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".image-menu-wrap")) closeImageMenu();
   });
 
   elements.copyLinkButton.addEventListener("click", async () => {
@@ -181,7 +235,16 @@ function bindUi() {
   });
 }
 
+function closeImageMenu() {
+  elements.imageMenu.hidden = true;
+  elements.imageMenuButton.setAttribute("aria-expanded", "false");
+}
+
 async function createStore(id) {
+  if (window.location.hostname.endsWith("github.io")) {
+    return createLocalStore(id, "Saved locally");
+  }
+
   try {
     const initialState = await fetchJson(apiPath(id));
     return createServerStore(id, initialState);
@@ -262,11 +325,18 @@ function createServerStore(id, initialState) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title })
       });
+    },
+    setCenterImage(centerImage) {
+      return mutate(apiPath(id, "center-image"), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ centerImage })
+      });
     }
   };
 }
 
-function createLocalStore(id) {
+function createLocalStore(id, label = "Local mode") {
   const storageKey = `thomas-wheel:${id}`;
   let state = readLocalState(storageKey);
   const listeners = new Set();
@@ -292,7 +362,7 @@ function createLocalStore(id) {
 
   return {
     mode: "local",
-    label: "Local mode",
+    label,
     subscribe(onChange) {
       listeners.add(onChange);
       window.setTimeout(() => onChange(cloneState(state)), 0);
@@ -323,6 +393,11 @@ function createLocalStore(id) {
       state.title = normalizeTitle(title) || DEFAULT_TITLE;
       save();
       return Promise.resolve();
+    },
+    setCenterImage(value) {
+      state.centerImage = value;
+      save();
+      return Promise.resolve();
     }
   };
 }
@@ -341,6 +416,7 @@ function normalizeServerState(value) {
 
   return {
     title: normalizeTitle(value?.title) || DEFAULT_TITLE,
+    centerImage: normalizeCenterImage(value?.centerImage),
     names: parsedNames,
     lastWinner: String(value?.lastWinner || ""),
     lastWinnerAt: Number(value?.lastWinnerAt || 0),
@@ -353,24 +429,57 @@ function readLocalState(storageKey) {
     const parsed = JSON.parse(window.localStorage.getItem(storageKey) || "{}");
     return {
       title: normalizeTitle(parsed.title) || DEFAULT_TITLE,
+      centerImage: normalizeCenterImage(parsed.centerImage),
       names: Array.isArray(parsed.names) ? parsed.names.filter((item) => item?.id && item?.text) : [],
       lastWinner: typeof parsed.lastWinner === "string" ? parsed.lastWinner : "",
       lastWinnerAt: Number(parsed.lastWinnerAt || 0),
       lastWinnerId: typeof parsed.lastWinnerId === "string" ? parsed.lastWinnerId : ""
     };
   } catch {
-    return { title: DEFAULT_TITLE, names: [], lastWinner: "", lastWinnerAt: 0, lastWinnerId: "" };
+    return { title: DEFAULT_TITLE, centerImage: "", names: [], lastWinner: "", lastWinnerAt: 0, lastWinnerId: "" };
   }
 }
 
 function cloneState(state) {
   return {
     title: state.title,
+    centerImage: state.centerImage,
     names: state.names.map((name) => ({ ...name })),
     lastWinner: state.lastWinner,
     lastWinnerAt: state.lastWinnerAt,
     lastWinnerId: state.lastWinnerId
   };
+}
+
+function normalizeCenterImage(value) {
+  const image = typeof value === "string" ? value : "";
+  if (image.startsWith("color:") && CENTER_COLORS.has(image.slice(6))) return image;
+  return /^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(image) ? image : "";
+}
+
+function resizeImage(file, maxSize) {
+  if (!/^image\/(?:png|jpeg|webp|gif)$/i.test(file.type)) {
+    return Promise.reject(new Error("Unsupported image type"));
+  }
+
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    image.onload = () => {
+      const scale = Math.min(1, maxSize / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(objectUrl);
+      resolve(canvas.toDataURL("image/jpeg", 0.86));
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Could not read image"));
+    };
+    image.src = objectUrl;
+  });
 }
 
 function renderNames() {
@@ -450,9 +559,15 @@ function drawCenterHub(radius) {
 
   ctx.save();
   ctx.clip();
-  if (centerLogo.complete && centerLogo.naturalWidth > 0) {
+  if (centerImage.startsWith("color:")) {
+    ctx.fillStyle = centerImage.slice(6);
+    ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
+  } else if (centerLogo.complete && centerLogo.naturalWidth > 0) {
     const diameter = radius * 2;
-    ctx.drawImage(centerLogo, -radius, -radius, diameter, diameter);
+    const sourceSize = Math.min(centerLogo.naturalWidth, centerLogo.naturalHeight);
+    const sourceX = (centerLogo.naturalWidth - sourceSize) / 2;
+    const sourceY = (centerLogo.naturalHeight - sourceSize) / 2;
+    ctx.drawImage(centerLogo, sourceX, sourceY, sourceSize, sourceSize, -radius, -radius, diameter, diameter);
   } else {
     ctx.fillStyle = "#7a4fb3";
     ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
@@ -460,7 +575,7 @@ function drawCenterHub(radius) {
     ctx.font = "900 64px Inter, system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("fx", 0, -3);
+    ctx.fillText("TA", 0, -3);
   }
   ctx.restore();
 

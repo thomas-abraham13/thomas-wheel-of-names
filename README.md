@@ -10,7 +10,11 @@ npm start
 
 Open the printed localhost URL. A new wheel ID is created automatically in the `?wheel=` query string.
 
-## Host Online
+## Host on GitHub Pages
+
+Publish `index.html`, `styles.css`, `app.js`, and `assets/` from the repository root. On GitHub Pages the app automatically uses browser local storage, so names, titles, winners, and uploaded centre images persist on that device. GitHub Pages is static hosting, so wheel changes do not live-sync between different people or browsers.
+
+## Host with Live Sync
 
 Run the Node server on any host that supports long-running Node apps, then share the wheel URL. The server stores wheel data in `data/wheels.json` by default.
 
