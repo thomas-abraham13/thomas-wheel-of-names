@@ -43,6 +43,7 @@ const elements = {
   spinButton: document.querySelector("#spinButton"),
   syncStatus: document.querySelector("#syncStatus"),
   wheelIdLabel: document.querySelector("#wheelIdLabel"),
+  wheelWrap: document.querySelector(".wheel-wrap"),
   wheelTitleForm: document.querySelector("#wheelTitleForm"),
   wheelTitleInput: document.querySelector("#wheelTitleInput"),
   winnerCloseButton: document.querySelector("#winnerCloseButton"),
@@ -98,10 +99,12 @@ async function boot() {
     lastWinner = nextState.lastWinner || "";
     lastWinnerAt = nextState.lastWinnerAt || 0;
     lastWinnerId = nextState.lastWinnerId || "";
+    hasInitialSnapshot = true;
 
     updateTitleField(currentTitle);
     renderNames();
     drawWheel();
+    elements.wheelWrap.dataset.loading = "false";
     updateSpinState();
 
     if (!spinning && lastWinner) {
@@ -112,7 +115,6 @@ async function boot() {
       showWinnerPopup(lastWinner, lastWinnerId);
     }
 
-    hasInitialSnapshot = true;
   });
 }
 

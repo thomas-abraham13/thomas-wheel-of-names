@@ -48,9 +48,10 @@
 
       <section class="workspace" aria-label="Wheel workspace">
         <div class="wheel-stage">
-          <div class="wheel-wrap">
+          <div class="wheel-wrap" data-loading="true">
             <canvas id="wheelCanvas" width="900" height="900" role="button" tabindex="0" aria-label="Spin wheel"></canvas>
             <div class="pointer" aria-hidden="true"></div>
+            <p class="wheel-loading" role="status">Loading wheel</p>
           </div>
 
           <div class="winner-overlay" id="winnerOverlay" hidden>

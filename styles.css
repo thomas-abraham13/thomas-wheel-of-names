@@ -307,6 +307,26 @@ button {
   border-radius: 50%;
   cursor: pointer;
   filter: drop-shadow(0 22px 40px rgba(29, 33, 31, 0.18));
+  transition: opacity 140ms ease;
+}
+
+.wheel-wrap[data-loading="true"] #wheelCanvas,
+.wheel-wrap[data-loading="true"] .pointer {
+  opacity: 0;
+}
+
+.wheel-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.wheel-wrap[data-loading="false"] .wheel-loading {
+  display: none;
 }
 
 #wheelCanvas[aria-disabled="true"] {
