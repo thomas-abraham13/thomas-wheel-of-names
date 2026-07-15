@@ -11,6 +11,7 @@ const SPIN_DURATION_VARIANCE = 800;
 const SPIN_TURNS_MIN = 6;
 const SPIN_TURNS_VARIANCE = 3;
 const LANDING_EDGE_INSET = 0.08;
+const ANALYTICS_DISABLED_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", ""]);
 const WHEEL_COLORS = [
   "#0f766e",
   "#f2c94c",
@@ -138,7 +139,9 @@ function bindUi() {
       return;
     }
 
+    const nextNameCount = names.length + 1;
     await store.addName(text);
+    trackEvent("name_added", { name_count: nextNameCount });
     elements.nameInput.value = "";
     elements.nameInput.focus();
   });
@@ -149,7 +152,12 @@ function bindUi() {
       return;
     }
 
+    const nextNameCount = Math.max(0, names.length - 1);
     await store.removeName(button.dataset.removeId);
+    trackEvent("name_removed", {
+      name_count: nextNameCount,
+      removal_source: "name_list"
+    });
   });
 
   elements.wheelTitleForm.addEventListener("submit", (event) => {
@@ -173,6 +181,7 @@ function bindUi() {
     try {
       const imageData = await resizeImage(file, 512);
       await store.setCenterImage(imageData);
+      trackEvent("center_changed", { center_type: "image" });
       flashStatus("Image updated");
       closeImageMenu();
     } catch (error) {
@@ -186,6 +195,7 @@ function bindUi() {
   elements.resetCenterImageButton.addEventListener("click", async () => {
     if (!store) return;
     await store.setCenterImage("");
+    trackEvent("center_changed", { center_type: "reset" });
     flashStatus("Image reset");
     closeImageMenu();
   });
@@ -200,6 +210,7 @@ function bindUi() {
     const colourButton = event.target.closest("[data-center-color]");
     if (!colourButton || !store) return;
     await store.setCenterImage(`color:${colourButton.dataset.centerColor}`);
+    trackEvent("center_changed", { center_type: "color" });
     flashStatus("Colour updated");
     closeImageMenu();
   });
@@ -235,6 +246,12 @@ function bindUi() {
 
   elements.copyLinkButton.addEventListener("click", async () => {
     const copied = await copyToClipboard(window.location.href);
+    if (copied) {
+      trackEvent("share", {
+        method: "copy_link",
+        content_type: "wheel"
+      });
+    }
     flashStatus(copied ? "Link copied" : "Copy failed");
   });
 
@@ -242,6 +259,7 @@ function bindUi() {
     const nextId = createWheelId();
     const url = new URL(window.location.href);
     url.searchParams.set("wheel", nextId);
+    trackEvent("wheel_created", { name_count: 0 });
     window.location.href = url.toString();
   });
 
@@ -266,6 +284,10 @@ async function createStore(id) {
       return await createFirebaseStore(id);
     } catch (error) {
       console.error("Firebase unavailable; falling back to local storage.", error);
+      trackEvent("sync_error", {
+        sync_mode: "firebase",
+        error_category: "initialization"
+      });
       return createLocalStore(id, "Saved locally");
     }
   }
@@ -275,6 +297,10 @@ async function createStore(id) {
     return createServerStore(id, initialState);
   } catch (error) {
     console.warn("Shared API unavailable; falling back to local mode.", error);
+    trackEvent("sync_error", {
+      sync_mode: "server",
+      error_category: "initialization"
+    });
     return createLocalStore(id);
   }
 }
@@ -305,12 +331,17 @@ async function createFirebaseStore(id) {
 
   return {
     mode: "live",
+    analyticsMode: "firebase",
     label: "Live sync",
     subscribe(onChange) {
       return onSnapshot(wheelRef, (snapshot) => {
         if (snapshot.exists()) onChange(normalizeServerState(snapshot.data()));
       }, (error) => {
         console.error("Wheel sync failed.", error);
+        trackEvent("sync_error", {
+          sync_mode: "firebase",
+          error_category: "stream"
+        });
         setSyncStatus("local", "Sync error");
       });
     },
@@ -357,6 +388,7 @@ function createServerStore(id, initialState) {
   let state = normalizeServerState(initialState);
   const listeners = new Set();
   let events = null;
+  let hasReportedSyncError = false;
 
   // Gives each subscriber an isolated snapshot so listeners cannot mutate shared state.
   const notify = () => {
@@ -376,9 +408,17 @@ function createServerStore(id, initialState) {
       notify();
     };
     events.onerror = () => {
+      if (!hasReportedSyncError) {
+        trackEvent("sync_error", {
+          sync_mode: "server",
+          error_category: "stream"
+        });
+        hasReportedSyncError = true;
+      }
       setSyncStatus("local", "Reconnecting");
     };
     events.onopen = () => {
+      hasReportedSyncError = false;
       setSyncStatus("live", "Live sync");
     };
   };
@@ -391,6 +431,7 @@ function createServerStore(id, initialState) {
 
   return {
     mode: "live",
+    analyticsMode: "server",
     label: "Live sync",
     subscribe(onChange) {
       listeners.add(onChange);
@@ -467,6 +508,7 @@ function createLocalStore(id, label = "Local mode") {
 
   return {
     mode: "local",
+    analyticsMode: "local",
     label,
     subscribe(onChange) {
       listeners.add(onChange);
@@ -749,6 +791,11 @@ function spinWheel() {
     spinning = false;
     elements.resultText.textContent = winner.text;
     updateSpinState();
+    trackEvent("wheel_spin", {
+      name_count: spinNames.length,
+      spin_duration_ms: Math.round(timestamp - startedAt),
+      sync_mode: store.analyticsMode
+    });
     store.setLastWinner(winner.text, winner.id);
   };
 
@@ -772,8 +819,13 @@ async function removePopupWinner() {
   }
 
   const nameId = popupWinnerId;
+  const nextNameCount = Math.max(0, names.length - 1);
   elements.winnerRemoveButton.disabled = true;
   await store.removeName(nameId);
+  trackEvent("name_removed", {
+    name_count: nextNameCount,
+    removal_source: "winner_dialog"
+  });
   closeWinnerPopup();
 }
 
@@ -1018,6 +1070,19 @@ function flashStatus(message) {
     elements.syncStatus.dataset.mode = previousMode;
     elements.syncStatus.textContent = previousText;
   }, 1300);
+}
+
+// Sends a privacy-safe GA4 event without wheel IDs, user titles, or local development traffic.
+function trackEvent(eventName, parameters = {}) {
+  if (ANALYTICS_DISABLED_HOSTS.has(window.location.hostname) || typeof window.gtag !== "function") {
+    return;
+  }
+
+  window.gtag("event", eventName, {
+    ...parameters,
+    page_location: `${window.location.origin}${window.location.pathname}`,
+    page_title: DEFAULT_TITLE
+  });
 }
 
 // Copies text with the Clipboard API and falls back to a temporary selectable field.

@@ -12,7 +12,25 @@
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
 
-      gtag('config', 'G-9QNX16SKGR');
+      const analyticsPageUrl = new URL(window.location.href);
+      analyticsPageUrl.search = '';
+      analyticsPageUrl.hash = '';
+
+      const analyticsConfig = {
+        page_location: analyticsPageUrl.toString(),
+        page_title: 'Wheel of Names'
+      };
+
+      if (document.referrer) {
+        const analyticsReferrerUrl = new URL(document.referrer);
+        analyticsReferrerUrl.search = '';
+        analyticsReferrerUrl.hash = '';
+        analyticsConfig.page_referrer = analyticsReferrerUrl.toString();
+      }
+
+      if (!['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)) {
+        gtag('config', 'G-9QNX16SKGR', analyticsConfig);
+      }
     </script>
     <link rel="stylesheet" href="./styles.css">
   </head>
