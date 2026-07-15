@@ -6,6 +6,11 @@ const API_BASE = "/api/wheels";
 const DEFAULT_TITLE = "Wheel of Names";
 const CENTER_COLORS = new Set(["#ffffff", "#1d211f", "#0f766e", "#f2c94c", "#7a4fb3"]);
 const TAU = Math.PI * 2;
+const SPIN_DURATION_MIN = 5000;
+const SPIN_DURATION_VARIANCE = 800;
+const SPIN_TURNS_MIN = 6;
+const SPIN_TURNS_VARIANCE = 3;
+const LANDING_EDGE_INSET = 0.08;
 const WHEEL_COLORS = [
   "#0f766e",
   "#f2c94c",
@@ -76,6 +81,7 @@ centerLogo.onload = drawWheel;
 centerLogo.onerror = drawWheel;
 boot();
 
+// Initializes the active wheel store, renders its first state, and begins live synchronization.
 async function boot() {
   elements.wheelIdLabel.textContent = wheelId;
   setDocumentTitle(currentTitle);
@@ -118,6 +124,7 @@ async function boot() {
   });
 }
 
+// Connects all form, button, keyboard, and window events to their wheel actions.
 function bindUi() {
   elements.nameForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -246,11 +253,13 @@ function bindUi() {
   });
 }
 
+// Hides the center-image picker and keeps its accessibility state in sync.
 function closeImageMenu() {
   elements.imageMenu.hidden = true;
   elements.imageMenuButton.setAttribute("aria-expanded", "false");
 }
 
+// Chooses the best persistence layer for the current host, with local storage as a fallback.
 async function createStore(id) {
   if (window.location.hostname.endsWith("github.io")) {
     try {
@@ -270,6 +279,7 @@ async function createStore(id) {
   }
 }
 
+// Creates a Firestore-backed store whose writes are transactional and whose updates are realtime.
 async function createFirebaseStore(id) {
   const firebaseApp = initializeApp(firebaseConfig);
   const auth = getAuth(firebaseApp);
@@ -285,6 +295,7 @@ async function createFirebaseStore(id) {
     await setDoc(wheelRef, emptyWheelState());
   }
 
+  // Applies name-list changes atomically so simultaneous clients do not overwrite one another.
   const transact = (changeState) => runTransaction(database, async (transaction) => {
     const snapshot = await transaction.get(wheelRef);
     const state = normalizeServerState(snapshot.exists() ? snapshot.data() : emptyWheelState());
@@ -328,6 +339,7 @@ async function createFirebaseStore(id) {
   };
 }
 
+// Returns a complete blank state for newly created wheels.
 function emptyWheelState() {
   return {
     title: DEFAULT_TITLE,
@@ -340,16 +352,19 @@ function emptyWheelState() {
   };
 }
 
+// Creates a store backed by the local HTTP API and Server-Sent Events.
 function createServerStore(id, initialState) {
   let state = normalizeServerState(initialState);
   const listeners = new Set();
   let events = null;
 
+  // Gives each subscriber an isolated snapshot so listeners cannot mutate shared state.
   const notify = () => {
     const snapshot = cloneState(state);
     listeners.forEach((listener) => listener(snapshot));
   };
 
+  // Opens one event stream and updates connection status as it reconnects.
   const connectEvents = () => {
     if (!window.EventSource || events) {
       return;
@@ -368,6 +383,7 @@ function createServerStore(id, initialState) {
     };
   };
 
+  // Runs a server mutation, then immediately publishes the returned canonical state.
   const mutate = async (path, options) => {
     state = normalizeServerState(await fetchJson(path, options));
     notify();
@@ -422,16 +438,19 @@ function createServerStore(id, initialState) {
   };
 }
 
+// Creates a browser-local store and synchronizes it across tabs through storage events.
 function createLocalStore(id, label = "Local mode") {
   const storageKey = `thomas-wheel:${id}`;
   let state = readLocalState(storageKey);
   const listeners = new Set();
 
+  // Gives each subscriber an isolated snapshot of the current local state.
   const notify = () => {
     const snapshot = cloneState(state);
     listeners.forEach((listener) => listener(snapshot));
   };
 
+  // Persists a change before notifying this tab's subscribers.
   const save = () => {
     window.localStorage.setItem(storageKey, JSON.stringify(state));
     notify();
@@ -488,6 +507,7 @@ function createLocalStore(id, label = "Local mode") {
   };
 }
 
+// Converts untrusted persisted or remote data into the client state shape used by the UI.
 function normalizeServerState(value) {
   const parsedNames = Array.isArray(value?.names)
     ? value.names
@@ -510,6 +530,7 @@ function normalizeServerState(value) {
   };
 }
 
+// Safely reads a wheel from local storage, returning a blank state if the data is invalid.
 function readLocalState(storageKey) {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(storageKey) || "{}");
@@ -526,6 +547,7 @@ function readLocalState(storageKey) {
   }
 }
 
+// Copies wheel state deeply enough to protect its mutable list of names.
 function cloneState(state) {
   return {
     title: state.title,
@@ -537,12 +559,14 @@ function cloneState(state) {
   };
 }
 
+// Accepts only supported center colors or safe image data URLs.
 function normalizeCenterImage(value) {
   const image = typeof value === "string" ? value : "";
   if (image.startsWith("color:") && CENTER_COLORS.has(image.slice(6))) return image;
   return /^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(image) ? image : "";
 }
 
+// Downscales an uploaded image and converts it to a compact JPEG data URL for storage.
 function resizeImage(file, maxSize) {
   if (!/^image\/(?:png|jpeg|webp|gif)$/i.test(file.type)) {
     return Promise.reject(new Error("Unsupported image type"));
@@ -568,6 +592,7 @@ function resizeImage(file, maxSize) {
   });
 }
 
+// Rebuilds the editable names panel from the latest synchronized name list.
 function renderNames() {
   elements.nameCount.textContent = String(names.length);
   elements.nameList.replaceChildren();
@@ -603,6 +628,7 @@ function renderNames() {
   elements.nameList.append(fragment);
 }
 
+// Paints every wheel slice at the current rotation, then draws the center hub above it.
 function drawWheel() {
   const size = elements.canvas.width;
   const center = size / 2;
@@ -636,6 +662,7 @@ function drawWheel() {
   ctx.restore();
 }
 
+// Draws the wheel's clipped center color or image and its surrounding border.
 function drawCenterHub(radius) {
   ctx.save();
   ctx.beginPath();
@@ -663,6 +690,7 @@ function drawCenterHub(radius) {
   ctx.restore();
 }
 
+// Places a fitted label along the radius of a wheel segment.
 function drawSegmentText(text, angle, outerRadius, isPlaceholder = false) {
   ctx.save();
   ctx.rotate(angle);
@@ -679,6 +707,7 @@ function drawSegmentText(text, angle, outerRadius, isPlaceholder = false) {
   ctx.restore();
 }
 
+// Selects a random name and landing point, then animates a fast-starting, slow-ending spin.
 function spinWheel() {
   if (spinning || !names.length || !store) {
     return;
@@ -689,11 +718,14 @@ function spinWheel() {
   const winner = spinNames[winnerIndex];
   const slice = TAU / spinNames.length;
   const current = normalizeAngle(rotation);
-  const targetAngle = normalizeAngle(-(winnerIndex + 0.5) * slice);
-  const travel = ((targetAngle - current + TAU) % TAU) + TAU * (5 + Math.floor(Math.random() * 3));
+  const landingRange = slice * (0.5 - LANDING_EDGE_INSET);
+  const landingOffset = (Math.random() * 2 - 1) * landingRange;
+  const targetAngle = normalizeAngle(-(winnerIndex + 0.5) * slice + landingOffset);
+  const fullTurns = SPIN_TURNS_MIN + Math.floor(Math.random() * SPIN_TURNS_VARIANCE);
+  const travel = ((targetAngle - current + TAU) % TAU) + TAU * fullTurns;
   const startRotation = rotation;
   const targetRotation = startRotation + travel;
-  const duration = 4400;
+  const duration = SPIN_DURATION_MIN + Math.random() * SPIN_DURATION_VARIANCE;
   const startedAt = performance.now();
 
   closeWinnerPopup();
@@ -701,9 +733,10 @@ function spinWheel() {
   updateSpinState();
   elements.resultText.textContent = "Spinning";
 
+  // A quintic ease-out gives the spin immediate speed and a long, smooth final slowdown.
   const frame = (timestamp) => {
     const progress = Math.min(1, (timestamp - startedAt) / duration);
-    const eased = 1 - Math.pow(1 - progress, 4);
+    const eased = 1 - Math.pow(1 - progress, 5);
     rotation = startRotation + (targetRotation - startRotation) * eased;
     drawWheel();
 
@@ -722,6 +755,7 @@ function spinWheel() {
   window.requestAnimationFrame(frame);
 }
 
+// Opens the winner dialog and starts its celebration effect.
 function showWinnerPopup(name, nameId) {
   popupWinnerId = nameId || "";
   elements.winnerName.textContent = name;
@@ -731,6 +765,7 @@ function showWinnerPopup(name, nameId) {
   window.setTimeout(() => elements.winnerCloseButton.focus(), 0);
 }
 
+// Removes the selected winner from the shared store and dismisses the dialog.
 async function removePopupWinner() {
   if (!store || !popupWinnerId) {
     return;
@@ -742,6 +777,7 @@ async function removePopupWinner() {
   closeWinnerPopup();
 }
 
+// Dismisses the winner dialog and releases its animation resources.
 function closeWinnerPopup() {
   if (elements.winnerOverlay.hidden) {
     return;
@@ -752,12 +788,14 @@ function closeWinnerPopup() {
   stopConfetti();
 }
 
+// Creates and animates confetti until the celebration duration or dialog ends.
 function launchConfetti() {
   stopConfetti();
   const rect = resizeConfettiCanvas();
   confettiPieces = Array.from({ length: 150 }, () => createConfettiPiece(rect));
   const startedAt = performance.now();
 
+  // Advances the simple particle simulation and recycles pieces that leave the screen.
   const animate = (timestamp) => {
     const elapsed = timestamp - startedAt;
     confettiCtx.clearRect(0, 0, rect.width, rect.height);
@@ -793,6 +831,7 @@ function launchConfetti() {
   confettiFrame = window.requestAnimationFrame(animate);
 }
 
+// Generates one randomized confetti particle sized for the winner overlay.
 function createConfettiPiece(rect) {
   return {
     x: Math.random() * rect.width,
@@ -808,6 +847,7 @@ function createConfettiPiece(rect) {
   };
 }
 
+// Matches the confetti canvas to the overlay while preserving sharpness on high-DPI screens.
 function resizeConfettiCanvas() {
   const rect = elements.winnerOverlay.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
@@ -820,6 +860,7 @@ function resizeConfettiCanvas() {
   };
 }
 
+// Cancels the confetti loop and clears all particle state.
 function stopConfetti() {
   if (confettiFrame) {
     window.cancelAnimationFrame(confettiFrame);
@@ -830,6 +871,7 @@ function stopConfetti() {
   confettiPieces = [];
 }
 
+// Normalizes and saves a changed wheel title without issuing redundant writes.
 async function saveWheelTitle() {
   if (!store) {
     return;
@@ -847,6 +889,7 @@ async function saveWheelTitle() {
   await store.setTitle(title);
 }
 
+// Refreshes the title input unless the user is actively editing it.
 function updateTitleField(title, force = false) {
   setDocumentTitle(title);
   if (force || document.activeElement !== elements.wheelTitleInput) {
@@ -854,20 +897,24 @@ function updateTitleField(title, force = false) {
   }
 }
 
+// Reflects the wheel's custom title in the browser tab.
 function setDocumentTitle(title) {
   document.title = `${title || DEFAULT_TITLE} - Shared Wheel`;
 }
 
+// Disables spin controls while a spin is active or the wheel has no names.
 function updateSpinState() {
   const isDisabled = spinning || !names.length;
   elements.spinButton.disabled = isDisabled;
   elements.canvas.setAttribute("aria-disabled", String(isDisabled));
 }
 
+// Supplies numbered slices so an empty wheel still has a useful visual structure.
 function createPlaceholderNames() {
   return Array.from({ length: 8 }, (_, index) => ({ text: String(index + 1) }));
 }
 
+// Truncates canvas text with an ellipsis until it fits the available segment width.
 function fitCanvasText(text, maxWidth) {
   if (ctx.measureText(text).width <= maxWidth) {
     return text;
@@ -880,6 +927,7 @@ function fitCanvasText(text, maxWidth) {
   return `${trimmed}...`;
 }
 
+// Reuses a valid wheel ID from the URL or creates one and updates the address in place.
 function getOrCreateWheelId() {
   const url = new URL(window.location.href);
   const existing = sanitizeWheelId(url.searchParams.get("wheel"));
@@ -893,6 +941,7 @@ function getOrCreateWheelId() {
   return created;
 }
 
+// Generates a readable, unguessable wheel ID using browser-provided random bytes.
 function createWheelId() {
   const alphabet = "abcdefghijkmnopqrstuvwxyz23456789";
   const bytes = new Uint8Array(12);
@@ -900,6 +949,7 @@ function createWheelId() {
   return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("");
 }
 
+// Creates a unique name-record ID, falling back when randomUUID is unavailable.
 function createRecordId() {
   if (window.crypto.randomUUID) {
     return window.crypto.randomUUID();
@@ -908,28 +958,34 @@ function createRecordId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+// Allows only wheel IDs that are safe to place in URLs and API paths.
 function sanitizeWheelId(value) {
   const cleaned = String(value || "").trim();
   return /^[a-zA-Z0-9_-]{6,32}$/.test(cleaned) ? cleaned : "";
 }
 
+// Collapses user-entered whitespace and removes empty padding from a name.
 function normalizeName(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
+// Cleans a title and enforces its shared maximum length.
 function normalizeTitle(value) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, 60);
 }
 
+// Wraps any rotation into the canonical range from zero up to one full turn.
 function normalizeAngle(value) {
   return ((value % TAU) + TAU) % TAU;
 }
 
+// Builds an encoded endpoint beneath the wheel API base path.
 function apiPath(id, ...segments) {
   const encoded = [id, ...segments].map((part) => encodeURIComponent(part));
   return `${API_BASE}/${encoded.join("/")}`;
 }
 
+// Fetches JSON with consistent headers and turns unsuccessful responses into errors.
 async function fetchJson(path, options = {}) {
   const response = await fetch(path, {
     ...options,
@@ -947,11 +1003,13 @@ async function fetchJson(path, options = {}) {
   return response.json();
 }
 
+// Updates the synchronization badge's visual mode and label.
 function setSyncStatus(mode, label) {
   elements.syncStatus.dataset.mode = mode;
   elements.syncStatus.textContent = label;
 }
 
+// Temporarily shows operation feedback before restoring the prior sync status.
 function flashStatus(message) {
   const previousMode = elements.syncStatus.dataset.mode;
   const previousText = elements.syncStatus.textContent;
@@ -962,6 +1020,7 @@ function flashStatus(message) {
   }, 1300);
 }
 
+// Copies text with the Clipboard API and falls back to a temporary selectable field.
 async function copyToClipboard(text) {
   try {
     await navigator.clipboard.writeText(text);

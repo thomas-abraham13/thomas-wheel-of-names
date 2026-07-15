@@ -19,6 +19,7 @@ const types = {
 
 let database = loadDatabase();
 
+// Creates the HTTP server and routes API requests separately from static assets.
 function createServer() {
   return http.createServer(async (request, response) => {
     try {
@@ -35,6 +36,7 @@ function createServer() {
   });
 }
 
+// Validates and handles every wheel API route, persisting mutations before responding.
 async function handleApi(request, response) {
   const requestUrl = new URL(request.url, `http://${request.headers.host}`);
   const parts = requestUrl.pathname.split("/").filter(Boolean);
@@ -124,6 +126,7 @@ async function handleApi(request, response) {
   sendJson(response, 404, { error: "Not found" });
 }
 
+// Keeps a Server-Sent Events connection open for realtime updates to one wheel.
 function handleEvents(request, response, wheelId) {
   response.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -151,6 +154,7 @@ function handleEvents(request, response, wheelId) {
   });
 }
 
+// Serves project assets while preventing path traversal and access to stored wheel data.
 function serveStatic(request, response) {
   const requestUrl = new URL(request.url, `http://${request.headers.host}`);
   const pathname = decodeURIComponent(requestUrl.pathname);
@@ -178,6 +182,7 @@ function serveStatic(request, response) {
   });
 }
 
+// Creates missing wheels and returns a normalized, chronologically sorted public snapshot.
 function getWheel(wheelId) {
   if (!database.wheels[wheelId]) {
     database.wheels[wheelId] = {
@@ -217,6 +222,7 @@ function getWheel(wheelId) {
   };
 }
 
+// Stores a normalized wheel mutation, writes it to disk, and notifies connected clients.
 function saveAndBroadcast(wheelId, wheel) {
   database.wheels[wheelId] = {
     ...database.wheels[wheelId],
@@ -232,6 +238,7 @@ function saveAndBroadcast(wheelId, wheel) {
   broadcast(wheelId, getWheel(wheelId));
 }
 
+// Pushes the latest wheel snapshot to every active event-stream client for that wheel.
 function broadcast(wheelId, state) {
   const wheelClients = clients.get(wheelId);
   if (!wheelClients) {
@@ -242,6 +249,7 @@ function broadcast(wheelId, state) {
   wheelClients.forEach((client) => client.write(payload));
 }
 
+// Loads the on-disk database or starts with an empty database when it is absent or invalid.
 function loadDatabase() {
   try {
     const parsed = JSON.parse(fs.readFileSync(dataFile, "utf8"));
@@ -251,11 +259,13 @@ function loadDatabase() {
   }
 }
 
+// Writes the full in-memory wheel database to its configured JSON file.
 function persistDatabase() {
   fs.mkdirSync(path.dirname(dataFile), { recursive: true });
   fs.writeFileSync(dataFile, JSON.stringify(database, null, 2));
 }
 
+// Reads and parses a JSON request body while enforcing a maximum payload size.
 function readJsonBody(request) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -285,6 +295,7 @@ function readJsonBody(request) {
   });
 }
 
+// Sends a non-cacheable JSON response with the requested HTTP status.
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
@@ -293,18 +304,22 @@ function sendJson(response, statusCode, payload) {
   response.end(JSON.stringify(payload));
 }
 
+// Generates a compact record ID from the current time and random data.
 function createRecordId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+// Cleans a submitted name and enforces its storage limit.
 function normalizeName(value) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, 80);
 }
 
+// Cleans a submitted title and enforces its storage limit.
 function normalizeTitle(value) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, 60);
 }
 
+// Accepts supported center colors or bounded base64 image data URLs only.
 function normalizeCenterImage(value) {
   const image = typeof value === "string" ? value : "";
   if (!image) return "";
@@ -312,20 +327,24 @@ function normalizeCenterImage(value) {
   return /^data:image\/(?:png|jpeg|webp|gif);base64,[a-zA-Z0-9+/=]+$/.test(image) && image.length <= 700000 ? image : "";
 }
 
+// Restricts record IDs to the characters and length accepted by API paths.
 function normalizeId(value) {
   const text = String(value || "").trim();
   return /^[a-zA-Z0-9_-]{1,120}$/.test(text) ? text : "";
 }
 
+// Checks that a wheel ID has the expected URL-safe format.
 function isValidWheelId(value) {
   return /^[a-zA-Z0-9_-]{6,32}$/.test(value);
 }
 
+// Confirms that a resolved child path remains within its intended parent directory.
 function isInside(parent, child) {
   const relative = path.relative(parent, child);
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
+// Starts the server and tries nearby ports when the preferred one is already occupied.
 function listen(port) {
   const server = createServer();
   server.on("error", (error) => {
