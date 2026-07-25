@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
 import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
-import { doc, getDoc, getFirestore, onSnapshot, runTransaction, setDoc } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
+import { deleteField, doc, getDoc, getFirestore, onSnapshot, runTransaction, setDoc } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
 
 const API_BASE = "/api/wheels";
 const DEFAULT_TITLE = "Wheel of Names";
@@ -364,8 +364,15 @@ async function createFirebaseStore(id) {
     setTitle(title) {
       return setDoc(wheelRef, { title: normalizeTitle(title) || DEFAULT_TITLE, updatedAt: Date.now() }, { merge: true });
     },
-    setCenterImage(centerImage) {
-      return setDoc(wheelRef, { centerImage: normalizeCenterImage(centerImage), updatedAt: Date.now() }, { merge: true });
+    async setCenterImage(centerImage) {
+      const nextCenterImage = normalizeCenterImage(centerImage);
+
+      // Remove the previous image value before writing a newly uploaded image.
+      if (nextCenterImage.startsWith("data:image/")) {
+        await setDoc(wheelRef, { centerImage: deleteField(), updatedAt: Date.now() }, { merge: true });
+      }
+
+      return setDoc(wheelRef, { centerImage: nextCenterImage, updatedAt: Date.now() }, { merge: true });
     }
   };
 }

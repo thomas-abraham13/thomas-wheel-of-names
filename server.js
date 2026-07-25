@@ -117,6 +117,9 @@ async function handleApi(request, response) {
     const body = await readJsonBody(request);
     const centerImage = normalizeCenterImage(body.centerImage);
     const wheel = getWheel(wheelId);
+    if (centerImage.startsWith("data:image/")) {
+      delete wheel.centerImage;
+    }
     wheel.centerImage = centerImage;
     saveAndBroadcast(wheelId, wheel);
     sendJson(response, 200, wheel);
