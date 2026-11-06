@@ -77,6 +77,9 @@ let store = null;
 let unsubscribe = null;
 let confettiFrame = 0;
 let confettiPieces = [];
+let spinNames = null;
+let syncState = { mode: "", label: "" };
+let flashTimer = 0;
 
 centerLogo.onload = drawWheel;
 centerLogo.onerror = drawWheel;
@@ -140,7 +143,7 @@ function bindUi() {
     }
 
     const nextNameCount = names.length + 1;
-    await store.addName(text);
+    if (!(await runMutation(() => store.addName(text)))) return;
     trackEvent("name_added", { name_count: nextNameCount });
     elements.nameInput.value = "";
     elements.nameInput.focus();
@@ -153,7 +156,7 @@ function bindUi() {
     }
 
     const nextNameCount = Math.max(0, names.length - 1);
-    await store.removeName(button.dataset.removeId);
+    if (!(await runMutation(() => store.removeName(button.dataset.removeId)))) return;
     trackEvent("name_removed", {
       name_count: nextNameCount,
       removal_source: "name_list"
@@ -194,7 +197,7 @@ function bindUi() {
 
   elements.resetCenterImageButton.addEventListener("click", async () => {
     if (!store) return;
-    await store.setCenterImage("");
+    if (!(await runMutation(() => store.setCenterImage("")))) return;
     trackEvent("center_changed", { center_type: "reset" });
     flashStatus("Image reset");
     closeImageMenu();
@@ -209,7 +212,7 @@ function bindUi() {
   elements.imageMenu.addEventListener("click", async (event) => {
     const colourButton = event.target.closest("[data-center-color]");
     if (!colourButton || !store) return;
-    await store.setCenterImage(`color:${colourButton.dataset.centerColor}`);
+    if (!(await runMutation(() => store.setCenterImage(`color:${colourButton.dataset.centerColor}`)))) return;
     trackEvent("center_changed", { center_type: "color" });
     flashStatus("Colour updated");
     closeImageMenu();
@@ -683,7 +686,10 @@ function drawWheel() {
   const center = size / 2;
   const outerRadius = center - 26;
   const innerRadius = Math.max(92, size * 0.13);
-  const displayNames = names.length ? names : createPlaceholderNames();
+  // Keep the slice layout fixed during a spin, even if names change remotely mid-spin.
+  const wheelNames = spinNames || names;
+  const hasNames = wheelNames.length > 0;
+  const displayNames = hasNames ? wheelNames : createPlaceholderNames();
   const slice = TAU / displayNames.length;
 
   ctx.clearRect(0, 0, size, size);
@@ -698,13 +704,13 @@ function drawWheel() {
     ctx.moveTo(0, 0);
     ctx.arc(0, 0, outerRadius, start, end);
     ctx.closePath();
-    ctx.fillStyle = names.length ? WHEEL_COLORS[index % WHEEL_COLORS.length] : "#dfe4dc";
+    ctx.fillStyle = hasNames ? WHEEL_COLORS[index % WHEEL_COLORS.length] : "#dfe4dc";
     ctx.fill();
     ctx.lineWidth = 5;
-    ctx.strokeStyle = names.length ? "#ffffff" : "#1d211f";
+    ctx.strokeStyle = hasNames ? "#ffffff" : "#1d211f";
     ctx.stroke();
 
-    drawSegmentText(name.text, start + slice / 2, outerRadius, !names.length);
+    drawSegmentText(name.text, start + slice / 2, outerRadius, !hasNames);
   });
 
   drawCenterHub(innerRadius);
@@ -762,10 +768,11 @@ function spinWheel() {
     return;
   }
 
-  const spinNames = [...names];
-  const winnerIndex = Math.floor(Math.random() * spinNames.length);
+  spinNames = [...names];
+  const spinNameCount = spinNames.length;
+  const winnerIndex = Math.floor(Math.random() * spinNameCount);
   const winner = spinNames[winnerIndex];
-  const slice = TAU / spinNames.length;
+  const slice = TAU / spinNameCount;
   const current = normalizeAngle(rotation);
   const landingRange = slice * (0.5 - LANDING_EDGE_INSET);
   const landingOffset = (Math.random() * 2 - 1) * landingRange;
@@ -796,14 +803,16 @@ function spinWheel() {
 
     rotation = normalizeAngle(targetRotation);
     spinning = false;
+    spinNames = null;
     elements.resultText.textContent = winner.text;
+    drawWheel();
     updateSpinState();
     trackEvent("wheel_spin", {
-      name_count: spinNames.length,
+      name_count: spinNameCount,
       spin_duration_ms: Math.round(timestamp - startedAt),
       sync_mode: store.analyticsMode
     });
-    store.setLastWinner(winner.text, winner.id);
+    runMutation(() => store.setLastWinner(winner.text, winner.id));
   };
 
   window.requestAnimationFrame(frame);
@@ -828,7 +837,10 @@ async function removePopupWinner() {
   const nameId = popupWinnerId;
   const nextNameCount = Math.max(0, names.length - 1);
   elements.winnerRemoveButton.disabled = true;
-  await store.removeName(nameId);
+  if (!(await runMutation(() => store.removeName(nameId)))) {
+    elements.winnerRemoveButton.disabled = false;
+    return;
+  }
   trackEvent("name_removed", {
     name_count: nextNameCount,
     removal_source: "winner_dialog"
@@ -943,9 +955,13 @@ async function saveWheelTitle() {
     return;
   }
 
+  const previousTitle = currentTitle;
   currentTitle = title;
   setDocumentTitle(title);
-  await store.setTitle(title);
+  if (!(await runMutation(() => store.setTitle(title)))) {
+    currentTitle = previousTitle;
+    updateTitleField(previousTitle, true);
+  }
 }
 
 // Refreshes the title input unless the user is actively editing it.
@@ -1025,7 +1041,7 @@ function sanitizeWheelId(value) {
 
 // Collapses user-entered whitespace and removes empty padding from a name.
 function normalizeName(value) {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 80);
 }
 
 // Cleans a title and enforces its shared maximum length.
@@ -1062,21 +1078,38 @@ async function fetchJson(path, options = {}) {
   return response.json();
 }
 
-// Updates the synchronization badge's visual mode and label.
+// Records the current sync mode and label, showing it unless a flash message is visible.
 function setSyncStatus(mode, label) {
-  elements.syncStatus.dataset.mode = mode;
-  elements.syncStatus.textContent = label;
+  syncState = { mode, label };
+  if (!flashTimer) renderSyncStatus();
 }
 
-// Temporarily shows operation feedback before restoring the prior sync status.
+// Paints the latest recorded sync state onto the status badge.
+function renderSyncStatus() {
+  elements.syncStatus.dataset.mode = syncState.mode;
+  elements.syncStatus.textContent = syncState.label;
+}
+
+// Temporarily shows operation feedback, then restores the latest (not stale) sync status.
 function flashStatus(message) {
-  const previousMode = elements.syncStatus.dataset.mode;
-  const previousText = elements.syncStatus.textContent;
+  window.clearTimeout(flashTimer);
   elements.syncStatus.textContent = message;
-  window.setTimeout(() => {
-    elements.syncStatus.dataset.mode = previousMode;
-    elements.syncStatus.textContent = previousText;
+  flashTimer = window.setTimeout(() => {
+    flashTimer = 0;
+    renderSyncStatus();
   }, 1300);
+}
+
+// Runs a store write, reporting failure in the status badge instead of rejecting unhandled.
+async function runMutation(action) {
+  try {
+    await action();
+    return true;
+  } catch (error) {
+    console.error("Wheel update failed.", error);
+    flashStatus("Save failed");
+    return false;
+  }
 }
 
 // Sends a privacy-safe GA4 event without wheel IDs, user titles, or local development traffic.

@@ -30,10 +30,22 @@ function createServer() {
 
       serveStatic(request, response);
     } catch (error) {
+      if (error.statusCode) {
+        sendJson(response, error.statusCode, { error: error.message });
+        return;
+      }
+
       console.error(error);
       sendJson(response, 500, { error: "Server error" });
     }
   });
+}
+
+// Creates an error whose status code and message are safe to return to the client.
+function httpError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
 }
 
 // Validates and handles every wheel API route, persisting mutations before responding.
@@ -117,9 +129,6 @@ async function handleApi(request, response) {
     const body = await readJsonBody(request);
     const centerImage = normalizeCenterImage(body.centerImage);
     const wheel = getWheel(wheelId);
-    if (centerImage.startsWith("data:image/")) {
-      delete wheel.centerImage;
-    }
     wheel.centerImage = centerImage;
     saveAndBroadcast(wheelId, wheel);
     sendJson(response, 200, wheel);
@@ -157,14 +166,22 @@ function handleEvents(request, response, wheelId) {
   });
 }
 
-// Serves project assets while preventing path traversal and access to stored wheel data.
+// Serves only the public app files, so source, git metadata, and wheel data stay private.
 function serveStatic(request, response) {
   const requestUrl = new URL(request.url, `http://${request.headers.host}`);
-  const pathname = decodeURIComponent(requestUrl.pathname);
+  let pathname;
+  try {
+    pathname = decodeURIComponent(requestUrl.pathname);
+  } catch {
+    response.writeHead(400);
+    response.end("Bad request");
+    return;
+  }
+
   const relativePath = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
   const filePath = path.resolve(root, relativePath);
 
-  if (!isInside(root, filePath) || isInside(dataDir, filePath)) {
+  if (!isInside(root, filePath) || isInside(dataDir, filePath) || !isPublicFile(filePath)) {
     response.writeHead(403);
     response.end("Forbidden");
     return;
@@ -197,7 +214,7 @@ function getWheel(wheelId) {
       lastWinnerAt: 0,
       createdAt: Date.now()
     };
-    persistDatabase();
+    // Not persisted here: a wheel is only written to disk once it is first changed.
   }
 
   const wheel = database.wheels[wheelId];
@@ -262,10 +279,12 @@ function loadDatabase() {
   }
 }
 
-// Writes the full in-memory wheel database to its configured JSON file.
+// Writes the full in-memory wheel database atomically, so a crash mid-write cannot corrupt it.
 function persistDatabase() {
   fs.mkdirSync(path.dirname(dataFile), { recursive: true });
-  fs.writeFileSync(dataFile, JSON.stringify(database, null, 2));
+  const tempFile = `${dataFile}.tmp`;
+  fs.writeFileSync(tempFile, JSON.stringify(database, null, 2));
+  fs.renameSync(tempFile, dataFile);
 }
 
 // Reads and parses a JSON request body while enforcing a maximum payload size.
@@ -277,7 +296,7 @@ function readJsonBody(request) {
       body += chunk;
       if (body.length > 750000) {
         request.destroy();
-        reject(new Error("Request body too large"));
+        reject(httpError(413, "Request body too large"));
       }
     });
 
@@ -288,9 +307,10 @@ function readJsonBody(request) {
       }
 
       try {
-        resolve(JSON.parse(body));
-      } catch (error) {
-        reject(error);
+        const parsed = JSON.parse(body);
+        resolve(parsed && typeof parsed === "object" ? parsed : {});
+      } catch {
+        reject(httpError(400, "Invalid JSON"));
       }
     });
 
@@ -345,6 +365,12 @@ function isValidWheelId(value) {
 function isInside(parent, child) {
   const relative = path.relative(parent, child);
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+// Allows only the files the browser app needs: the shell, its stylesheet and script, and assets.
+function isPublicFile(filePath) {
+  const relative = path.relative(root, filePath).split(path.sep).join("/");
+  return ["index.html", "styles.css", "app.js"].includes(relative) || relative.startsWith("assets/");
 }
 
 // Starts the server and tries nearby ports when the preferred one is already occupied.
