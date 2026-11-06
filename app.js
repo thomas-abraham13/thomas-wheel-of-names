@@ -1,17 +1,22 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
 import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
 import { deleteField, doc, getDoc, getFirestore, onSnapshot, runTransaction, setDoc } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
+import {
+  DEFAULT_TITLE,
+  TAU,
+  createWheelId,
+  easeOutSpin,
+  normalizeAngle,
+  normalizeCenterImage,
+  normalizeName,
+  normalizeServerState,
+  normalizeTitle,
+  planSpin,
+  sanitizeWheelId,
+  sliceUnderPointer
+} from "./wheel-core.js";
 
 const API_BASE = "/api/wheels";
-const DEFAULT_TITLE = "Wheel of Names";
-const CENTER_COLORS = new Set(["#ffffff", "#1d211f", "#0f766e", "#f2c94c", "#7a4fb3"]);
-const TAU = Math.PI * 2;
-const SPIN_DURATION_MIN = 9500;
-const SPIN_DURATION_VARIANCE = 1000;
-const SPIN_TURNS_MIN = 7;
-const SPIN_TURNS_VARIANCE = 3;
-const SPIN_EASE_POWER = 4;
-const LANDING_EDGE_INSET = 0.08;
 const IDLE_SPEED = 0.12;
 const TICK_MIN_GAP_MS = 35;
 const SOUND_STORAGE_KEY = "thomas-wheel:sound";
@@ -580,29 +585,6 @@ function createLocalStore(id, label = "Local mode") {
   };
 }
 
-// Converts untrusted persisted or remote data into the client state shape used by the UI.
-function normalizeServerState(value) {
-  const parsedNames = Array.isArray(value?.names)
-    ? value.names
-        .map((item) => ({
-          id: String(item?.id || ""),
-          text: String(item?.text || "").trim(),
-          createdAt: Number(item?.createdAt || 0)
-        }))
-        .filter((item) => item.id && item.text)
-        .sort((a, b) => a.createdAt - b.createdAt)
-    : [];
-
-  return {
-    title: normalizeTitle(value?.title) || DEFAULT_TITLE,
-    centerImage: normalizeCenterImage(value?.centerImage),
-    names: parsedNames,
-    lastWinner: String(value?.lastWinner || ""),
-    lastWinnerAt: Number(value?.lastWinnerAt || 0),
-    lastWinnerId: String(value?.lastWinnerId || "")
-  };
-}
-
 // Safely reads a wheel from local storage, returning a blank state if the data is invalid.
 function readLocalState(storageKey) {
   try {
@@ -630,13 +612,6 @@ function cloneState(state) {
     lastWinnerAt: state.lastWinnerAt,
     lastWinnerId: state.lastWinnerId
   };
-}
-
-// Accepts only supported center colors or safe image data URLs.
-function normalizeCenterImage(value) {
-  const image = typeof value === "string" ? value : "";
-  if (image.startsWith("color:") && CENTER_COLORS.has(image.slice(6))) return image;
-  return /^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(image) ? image : "";
 }
 
 // Downscales an uploaded image and converts it to a compact JPEG data URL for storage.
@@ -791,18 +766,9 @@ function spinWheel() {
 
   spinNames = [...names];
   const spinNameCount = spinNames.length;
-  const winnerIndex = Math.floor(Math.random() * spinNameCount);
-  const winner = spinNames[winnerIndex];
-  const slice = TAU / spinNameCount;
-  const current = normalizeAngle(rotation);
-  const landingRange = slice * (0.5 - LANDING_EDGE_INSET);
-  const landingOffset = (Math.random() * 2 - 1) * landingRange;
-  const targetAngle = normalizeAngle(-(winnerIndex + 0.5) * slice + landingOffset);
-  const fullTurns = SPIN_TURNS_MIN + Math.floor(Math.random() * SPIN_TURNS_VARIANCE);
-  const travel = ((targetAngle - current + TAU) % TAU) + TAU * fullTurns;
   const startRotation = rotation;
-  const targetRotation = startRotation + travel;
-  const duration = SPIN_DURATION_MIN + Math.random() * SPIN_DURATION_VARIANCE;
+  const { winnerIndex, slice, targetRotation, duration } = planSpin(spinNameCount, startRotation);
+  const winner = spinNames[winnerIndex];
   const startedAt = performance.now();
 
   closeWinnerPopup();
@@ -817,7 +783,7 @@ function spinWheel() {
   // A quartic ease-out starts fast and then crawls through the last few slices.
   const frame = (timestamp) => {
     const progress = Math.min(1, Math.max(0, (timestamp - startedAt) / duration));
-    const eased = 1 - Math.pow(1 - progress, SPIN_EASE_POWER);
+    const eased = easeOutSpin(progress);
     rotation = startRotation + (targetRotation - startRotation) * eased;
     drawWheel();
 
@@ -851,11 +817,6 @@ function spinWheel() {
   };
 
   window.requestAnimationFrame(frame);
-}
-
-// Returns the index of the slice currently under the top pointer for a given rotation.
-function sliceUnderPointer(angle, slice) {
-  return Math.floor(normalizeAngle(-angle) / slice);
 }
 
 // Slowly turns the wheel while it is idle, unless the viewer prefers reduced motion.
@@ -1146,14 +1107,6 @@ function getOrCreateWheelId() {
   return created;
 }
 
-// Generates a readable, unguessable wheel ID using browser-provided random bytes.
-function createWheelId() {
-  const alphabet = "abcdefghijkmnopqrstuvwxyz23456789";
-  const bytes = new Uint8Array(12);
-  window.crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("");
-}
-
 // Creates a unique name-record ID, falling back when randomUUID is unavailable.
 function createRecordId() {
   if (window.crypto.randomUUID) {
@@ -1161,27 +1114,6 @@ function createRecordId() {
   }
 
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-// Allows only wheel IDs that are safe to place in URLs and API paths.
-function sanitizeWheelId(value) {
-  const cleaned = String(value || "").trim();
-  return /^[a-zA-Z0-9_-]{6,32}$/.test(cleaned) ? cleaned : "";
-}
-
-// Collapses user-entered whitespace and removes empty padding from a name.
-function normalizeName(value) {
-  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 80);
-}
-
-// Cleans a title and enforces its shared maximum length.
-function normalizeTitle(value) {
-  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 60);
-}
-
-// Wraps any rotation into the canonical range from zero up to one full turn.
-function normalizeAngle(value) {
-  return ((value % TAU) + TAU) % TAU;
 }
 
 // Builds an encoded endpoint beneath the wheel API base path.

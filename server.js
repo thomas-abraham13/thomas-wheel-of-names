@@ -370,7 +370,7 @@ function isInside(parent, child) {
 // Allows only the files the browser app needs: the shell, its stylesheet and script, and assets.
 function isPublicFile(filePath) {
   const relative = path.relative(root, filePath).split(path.sep).join("/");
-  return ["index.html", "styles.css", "app.js"].includes(relative) || relative.startsWith("assets/");
+  return ["index.html", "styles.css", "app.js", "wheel-core.js"].includes(relative) || relative.startsWith("assets/");
 }
 
 // Starts the server and tries nearby ports when the preferred one is already occupied.
@@ -390,4 +390,8 @@ function listen(port) {
   });
 }
 
-listen(basePort);
+if (require.main === module) {
+  listen(basePort);
+}
+
+module.exports = { createServer, dataFile };

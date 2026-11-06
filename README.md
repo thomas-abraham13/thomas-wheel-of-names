@@ -10,9 +10,17 @@ npm start
 
 Open the printed localhost URL. A new wheel ID is created automatically in the `?wheel=` query string.
 
+## Tests
+
+```powershell
+npm test
+```
+
+Uses Node's built-in test runner (Node 22+), with no dependencies to install. `test/wheel-core.test.mjs` covers input validation and the spin maths, including that every spin lands inside the chosen winner's slice. `test/server.test.js` starts the server against a temporary data folder and checks static-file access, every API route, saving to disk, and live updates. GitHub Actions runs the tests on every push to `main` and on pull requests.
+
 ## Host on GitHub Pages
 
-Publish `index.html`, `styles.css`, `app.js`, and `assets/` from the repository root. The GitHub Pages deployment uses Firebase anonymous authentication and Firestore to save and live-sync wheels between browsers. If Firebase is unavailable, it falls back to browser local storage.
+Publish `index.html`, `styles.css`, `app.js`, `wheel-core.js`, and `assets/` from the repository root. The GitHub Pages deployment uses Firebase anonymous authentication and Firestore to save and live-sync wheels between browsers. If Firebase is unavailable, it falls back to browser local storage.
 
 ## Host with Live Sync
 
@@ -30,5 +38,7 @@ The wheel ID in the URL is the access key. Anyone with that URL can edit that wh
 
 - `index.html` contains the app shell.
 - `styles.css` contains the responsive interface.
-- `app.js` contains wheel drawing, spinning, the winner popup, local fallback, and live API sync.
+- `app.js` contains wheel drawing, spinning, sounds, the winner popup, local fallback, and live API sync.
+- `wheel-core.js` contains the pure logic shared by the app and the tests: input validation and spin maths.
 - `server.js` serves the app, stores wheel data, and streams live updates.
+- `test/` contains the automated tests.

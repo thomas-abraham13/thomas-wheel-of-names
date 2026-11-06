@@ -5,6 +5,10 @@
   "description": "A shared wheel of names with a small realtime Node backend.",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check app.js && node --check server.js"
+    "test": "node --test",
+    "check": "node --check app.js && node --check wheel-core.js && node --check server.js"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
