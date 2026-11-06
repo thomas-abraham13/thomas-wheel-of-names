@@ -1,0 +1,37 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /wheels/{wheelId} {
+      function validWheel() {
+        let data = request.resource.data;
+        return data.get('title', '') is string
+          && data.get('title', '').size() <= 60
+          && data.get('names', []) is list
+          && data.get('names', []).size() <= 500
+          && data.get('centerImage', '') is string
+          && data.get('centerImage', '').size() <= 700000;
+      }
+
+      // Open one wheel by its ID; never browse the collection.
+      allow get: if request.auth != null;
+      allow list: if false;
+
+      // New wheels: valid ID and only the fields the app writes.
+      allow create: if request.auth != null
+        && wheelId.matches('^[a-zA-Z0-9_-]{6,32}$')
+        && request.resource.data.keys().hasOnly(['title', 'centerImage', 'names',
+             'lastWinner', 'lastWinnerId', 'lastWinnerAt', 'createdAt', 'updatedAt'])
+        && validWheel();
+
+      // Edits may only touch the app's fields (older wheels may carry other fields).
+      allow update: if request.auth != null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'centerImage',
+             'names', 'lastWinner', 'lastWinnerId', 'lastWinnerAt', 'createdAt', 'updatedAt'])
+        && validWheel();
+
+      // The app never deletes wheels.
+      allow delete: if false;
+    }
+  }
+}
