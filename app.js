@@ -6,11 +6,15 @@ const API_BASE = "/api/wheels";
 const DEFAULT_TITLE = "Wheel of Names";
 const CENTER_COLORS = new Set(["#ffffff", "#1d211f", "#0f766e", "#f2c94c", "#7a4fb3"]);
 const TAU = Math.PI * 2;
-const SPIN_DURATION_MIN = 5000;
-const SPIN_DURATION_VARIANCE = 800;
-const SPIN_TURNS_MIN = 6;
+const SPIN_DURATION_MIN = 9500;
+const SPIN_DURATION_VARIANCE = 1000;
+const SPIN_TURNS_MIN = 7;
 const SPIN_TURNS_VARIANCE = 3;
+const SPIN_EASE_POWER = 4;
 const LANDING_EDGE_INSET = 0.08;
+const IDLE_SPEED = 0.12;
+const TICK_MIN_GAP_MS = 35;
+const SOUND_STORAGE_KEY = "thomas-wheel:sound";
 const ANALYTICS_DISABLED_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", ""]);
 const WHEEL_COLORS = [
   "#0f766e",
@@ -47,6 +51,8 @@ const elements = {
   resultText: document.querySelector("#resultText"),
   resetCenterImageButton: document.querySelector("#resetCenterImageButton"),
   spinButton: document.querySelector("#spinButton"),
+  pointer: document.querySelector(".pointer"),
+  soundButton: document.querySelector("#soundButton"),
   syncStatus: document.querySelector("#syncStatus"),
   wheelIdLabel: document.querySelector("#wheelIdLabel"),
   wheelWrap: document.querySelector(".wheel-wrap"),
@@ -80,10 +86,14 @@ let confettiPieces = [];
 let spinNames = null;
 let syncState = { mode: "", label: "" };
 let flashTimer = 0;
+let audioContext = null;
+let soundEnabled = readSoundPreference();
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 centerLogo.onload = drawWheel;
 centerLogo.onerror = drawWheel;
 boot();
+startIdleRotation();
 
 // Initializes the active wheel store, renders its first state, and begins live synchronization.
 async function boot() {
@@ -245,6 +255,17 @@ function bindUi() {
 
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".image-menu-wrap")) closeImageMenu();
+  });
+
+  updateSoundButton();
+  elements.soundButton.addEventListener("click", () => {
+    soundEnabled = !soundEnabled;
+    try {
+      window.localStorage.setItem(SOUND_STORAGE_KEY, soundEnabled ? "on" : "off");
+    } catch {
+      // Storage can be unavailable (private mode); the toggle still works for this visit.
+    }
+    updateSoundButton();
   });
 
   elements.copyLinkButton.addEventListener("click", async () => {
@@ -785,16 +806,29 @@ function spinWheel() {
   const startedAt = performance.now();
 
   closeWinnerPopup();
+  getAudioContext(); // Unlock audio while we are still inside the user's click.
   spinning = true;
   updateSpinState();
   elements.resultText.textContent = "Spinning";
 
-  // A quintic ease-out gives the spin immediate speed and a long, smooth final slowdown.
+  let tickIndex = sliceUnderPointer(rotation, slice);
+  let lastTickAt = 0;
+
+  // A quartic ease-out starts fast and then crawls through the last few slices.
   const frame = (timestamp) => {
-    const progress = Math.min(1, (timestamp - startedAt) / duration);
-    const eased = 1 - Math.pow(1 - progress, 5);
+    const progress = Math.min(1, Math.max(0, (timestamp - startedAt) / duration));
+    const eased = 1 - Math.pow(1 - progress, SPIN_EASE_POWER);
     rotation = startRotation + (targetRotation - startRotation) * eased;
     drawWheel();
+
+    // Tick once per slice boundary passing the pointer, rate-limited so fast spins don't buzz.
+    const nextTickIndex = sliceUnderPointer(rotation, slice);
+    if (nextTickIndex !== tickIndex && timestamp - lastTickAt >= TICK_MIN_GAP_MS) {
+      tickIndex = nextTickIndex;
+      lastTickAt = timestamp;
+      playTick();
+      flickPointer();
+    }
 
     if (progress < 1) {
       window.requestAnimationFrame(frame);
@@ -807,6 +841,7 @@ function spinWheel() {
     elements.resultText.textContent = winner.text;
     drawWheel();
     updateSpinState();
+    playWinSound();
     trackEvent("wheel_spin", {
       name_count: spinNameCount,
       spin_duration_ms: Math.round(timestamp - startedAt),
@@ -816,6 +851,101 @@ function spinWheel() {
   };
 
   window.requestAnimationFrame(frame);
+}
+
+// Returns the index of the slice currently under the top pointer for a given rotation.
+function sliceUnderPointer(angle, slice) {
+  return Math.floor(normalizeAngle(-angle) / slice);
+}
+
+// Slowly turns the wheel while it is idle, unless the viewer prefers reduced motion.
+function startIdleRotation() {
+  let previous = performance.now();
+  const step = (timestamp) => {
+    const elapsed = Math.min(100, timestamp - previous) / 1000;
+    previous = timestamp;
+    if (!spinning && names.length && !reducedMotion.matches && !document.hidden) {
+      rotation = normalizeAngle(rotation + IDLE_SPEED * elapsed);
+      drawWheel();
+    }
+    window.requestAnimationFrame(step);
+  };
+  window.requestAnimationFrame(step);
+}
+
+// Nudges the pointer as if a peg flicked it, then lets it spring back.
+function flickPointer() {
+  if (reducedMotion.matches || !elements.pointer.animate) return;
+  elements.pointer.animate([
+    { transform: "translateX(-50%) rotate(-16deg)" },
+    { transform: "translateX(-50%) rotate(0deg)" }
+  ], { duration: 120, easing: "ease-out" });
+}
+
+// Reads the saved sound preference; sound is on unless the viewer turned it off.
+function readSoundPreference() {
+  try {
+    return window.localStorage.getItem(SOUND_STORAGE_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+// Shows the sound toggle's current state on the button.
+function updateSoundButton() {
+  const label = soundEnabled ? "Mute sounds" : "Turn sounds on";
+  elements.soundButton.setAttribute("aria-pressed", String(soundEnabled));
+  elements.soundButton.setAttribute("aria-label", label);
+  elements.soundButton.title = label;
+  elements.soundButton.querySelector(".sound-waves").style.display = soundEnabled ? "" : "none";
+  elements.soundButton.querySelector(".sound-off").style.display = soundEnabled ? "none" : "";
+}
+
+// Lazily creates (and resumes) the shared Web Audio context when sound is enabled.
+function getAudioContext() {
+  if (!soundEnabled) return null;
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+  audioContext ||= new AudioContextClass();
+  if (audioContext.state === "suspended") audioContext.resume();
+  return audioContext;
+}
+
+// Plays one short synthesized note; all wheel sounds are generated, not loaded from files.
+function playTone(audio, { frequency, endFrequency = frequency, start, length, volume, type = "triangle" }) {
+  const oscillator = audio.createOscillator();
+  const gain = audio.createGain();
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(frequency, start);
+  if (endFrequency !== frequency) {
+    oscillator.frequency.exponentialRampToValueAtTime(endFrequency, start + length);
+  }
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(volume, start + 0.005);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + length);
+  oscillator.connect(gain).connect(audio.destination);
+  oscillator.start(start);
+  oscillator.stop(start + length + 0.02);
+}
+
+// A short, dry click for each slice passing the pointer.
+function playTick() {
+  const audio = getAudioContext();
+  if (!audio) return;
+  playTone(audio, { frequency: 2200, endFrequency: 700, start: audio.currentTime, length: 0.035, volume: 0.22, type: "square" });
+}
+
+// A bright rising arpeggio and chord when the wheel lands.
+function playWinSound() {
+  const audio = getAudioContext();
+  if (!audio) return;
+  const start = audio.currentTime + 0.02;
+  [523.25, 659.25, 783.99].forEach((frequency, index) => {
+    playTone(audio, { frequency, start: start + index * 0.09, length: 0.18, volume: 0.18 });
+  });
+  [523.25, 659.25, 783.99, 1046.5].forEach((frequency) => {
+    playTone(audio, { frequency, start: start + 0.3, length: 0.9, volume: 0.12 });
+  });
 }
 
 // Opens the winner dialog and starts its celebration effect.
